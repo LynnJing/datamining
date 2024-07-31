@@ -1,0 +1,227 @@
+import itertools
+import os
+import numpy as np
+import networkx as nx
+from scipy.integrate import odeint
+import matplotlib.pyplot as plt
+
+
+# Please do not modify.
+def readData(fn):
+    matrix = np.loadtxt(open(fn, "rb"), delimiter=",", skiprows=0)
+    return matrix
+
+
+
+def maxClique(matrix):
+    # Q1.1
+    # The returned result is in string format. The returned node should start with an index of 0.
+    # Each sub-community should be in ascending order
+    # Get graph based on matrix
+    if len(matrix)>10:
+        return "Nodes should < = 10"
+    graph_instance = nx.Graph()
+    num_nodes = matrix.shape[0]
+    for node in range(num_nodes):
+        graph_instance.add_node(node)
+    for i in range(num_nodes):
+        for j in range(i, num_nodes):
+            if matrix[i][j] == 1:
+                graph_instance.add_edge(i, j)
+    # get max clique
+    max_cliques = nx.algorithms.clique.find_cliques(graph_instance)
+    max_clique = max(max_cliques, key=len)
+    result = ', '.join(map(str, max_clique))
+    return result
+
+def CPM(matrix,k):
+    # Q1.2
+    # The returned result is in string format. The returned node should start with an index of 0.
+    # get all cliques based on K , each clique has 3 items (if K=3)
+    cliques = []
+    nodes = [str(i) for i in range(len(matrix))]
+    for combination in itertools.combinations(nodes, k):
+        if all(matrix[int(node1)][int(node2)] == 1 for node1, node2 in itertools.combinations(combination, 2)):
+            cliques.append(list(combination))
+    cliques_list = [[num for num in sublist] for sublist in cliques]
+
+    # merge to get final communities based on cliques. if same item count >= k-1
+
+    merged_set = set()
+    tuples_list = list(cliques_list)
+    n = len(tuples_list)
+    start = 0
+    i = 0
+    while i < n:
+        item = tuples_list[i]
+        merged = set(item)
+        for j in range(start, n):
+            if start != j:
+                if len(merged & set(tuples_list[j])) >= k - 1:
+                    merged.update(tuples_list[j])
+                    start += 1
+        merged_set.add(tuple(sorted(merged)))
+        if i < start:
+            i = start
+        i += 1
+    result=','.join(['{' + ','.join(item) + '}' for item in merged_set])
+    return result
+
+def node_similarity(matrix):
+    # Q1.3
+    # The returned result is in float format.
+    G = nx.from_numpy_array(matrix, create_using=nx.Graph())
+    node1=0
+    node2=1
+    neighbors1 = set(G.neighbors(node1))
+    neighbors2 = set(G.neighbors(node2))
+    intersection = neighbors1.intersection(neighbors2)
+    union = neighbors1.union(neighbors2)
+    if node1 in union: union.discard(node1)
+    if node2 in union: union.discard(node2)
+    similarity = len(intersection) / len(union)
+    return similarity
+
+def modularity(matrix):
+    # Q1.4
+    # The returned result is in np.ndarray format.
+    num_nodes = len(matrix)
+    total_links = np.sum(matrix) / 2
+    degrees = np.sum(matrix, axis=1)
+    modularity_matrix = np.zeros((num_nodes, num_nodes))
+    for i in range(num_nodes):
+        for j in range(num_nodes):
+            modularity_matrix[i, j] = round((matrix[i, j] - degrees[i] * degrees[j] / (2 * total_links)),2)
+    return modularity_matrix
+
+def community_density(matrix):
+    # Q1.5
+    # The returned result is in float format.
+    num_nodes = len(matrix)
+    community_nodes = list(range(num_nodes))
+    internal_links = np.sum(matrix[community_nodes][:, community_nodes])/2
+    num_internal_nodes = len(community_nodes)
+    community_density = 2 * internal_links / (num_internal_nodes * (num_internal_nodes - 1))
+    return  community_density
+
+def girvan_newman(matrix):
+    # Q1.6
+    # The returned result is in np.ndarray format.
+    G = nx.Graph(matrix)
+    edge_betweenness = nx.edge_betweenness_centrality(G,normalized=False)
+    num_nodes = len(matrix)
+    edge_betweenness_matrix = np.zeros((num_nodes, num_nodes))
+    for i in range(num_nodes):
+        for j in range(num_nodes):
+            if (i, j) in edge_betweenness:
+                edge_betweenness_matrix[i, j] = edge_betweenness[(i, j)]
+            elif (j, i) in edge_betweenness:
+                edge_betweenness_matrix[i, j] = edge_betweenness[(j, i)]
+    return  edge_betweenness_matrix
+
+def max_cascade(matrix, threshold=0.5,k=1):
+    # Q1.7
+    # The returned result is in integer(int) format.
+    num_nodes = len(matrix)
+    best_node = -1
+    best_influence = 0
+
+    for start_node in range(num_nodes):
+        activated_nodes = set([start_node])
+    current_k = 1
+
+    while len(activated_nodes) < num_nodes and current_k < k:
+        new_activated = set()
+        for node in range(num_nodes):
+            if node not in activated_nodes:
+                if np.mean([matrix[node, nbr] for nbr in activated_nodes]) >= threshold:
+                    new_activated.add(node)
+        activated_nodes.update(new_activated)
+        current_k += 1
+
+    influence = len(activated_nodes)
+    if influence > best_influence:
+        best_influence = influence
+    best_node = start_node
+
+    return best_node
+
+'''
+1.8 SIS 模型。输入两个整数，S0 和 I0，并输入两个小数,β 和 γ，(0<=S0<=99，
+1<=I0<=100，S0+I0=100，0<β<γ，并 0<γ<1), 输出 S，I 关于 t 的图像 [7 分］
+'''
+def sis_model(y,t,beta,gamma):
+    S, I = y
+    dSdt = gamma * I - beta * S * I
+    dIdt = beta * S * I - gamma * I
+    return [dSdt, dIdt]
+def SIS(S0=99,I0=1,beta=0.01,gamma=0.1):
+    # 输入初始条件和参数
+    # 定义时间点
+    t = np.linspace(0, 100, 1000)
+    # 求解微分方程
+    solution = odeint(sis_model, [S0, I0], t, args=(beta, gamma))
+    S = solution[:, 0]
+    I = solution[:, 1]
+    # 绘制图像
+    plt.figure()
+    plt.plot(t, S, label='S(t)',linestyle='--')
+    plt.plot(t, I, label='I(t)')
+    plt.xlabel('Time')
+    plt.ylabel('Population')
+    plt.title('SIS Model')
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(np.arange(0, 100, 10))  # 设置x轴刻度间隔为10
+    plt.yticks(np.arange(0, 100, 10))  # 设置y轴刻度间隔为10
+    plt.show()
+
+def content_based_recommendation(matrix):
+    # Q1.9
+    # The returned result is in float format.
+    result=0.0
+    if len(matrix)==2:
+        vector1=matrix[0]
+        vector2=matrix[1]
+        dot_product=np.dot(vector1,vector2)
+        v1_squares=np.sqrt(np.sum(np.square(vector1)))
+        v2_squares=np.sqrt(np.sum(np.square(vector2)))
+        result=dot_product / (v1_squares * v2_squares)
+    return result
+
+def cf_recommendation_k1(matrix):
+    # Q1.10
+    # The returned result is in float format.
+    # get max_similarity
+    similarities = {}
+    column_with_9_index = np.where(matrix == 9)[1]
+    column_with_9 = matrix[:, column_with_9_index]
+    row_with_9 = matrix[np.any(matrix == 9, axis=1)]
+    column_with_9_cleaned = column_with_9[column_with_9 != 9]
+    rating_matrix_cleaned = np.delete(matrix, np.where(matrix[:, 1] == 9), axis=0)
+    for i in range(rating_matrix_cleaned.shape[1]):
+        if i != column_with_9_index:
+            column = rating_matrix_cleaned[:, i]
+        dot_product = np.dot(column_with_9_cleaned, column)
+        magnitude_column_with_9 = np.linalg.norm(column_with_9_cleaned)
+        magnitude_column = np.linalg.norm(column)
+        cosine_similarity = dot_product / (magnitude_column_with_9 * magnitude_column)
+        similarities[i] = cosine_similarity
+    most_similar_column = max(similarities, key=similarities.get)
+    max_similarity = similarities[most_similar_column]
+    most_similar_column_mean = np.mean(matrix[:, most_similar_column])
+    column_with_9_cleaned_mean = np.mean(column_with_9_cleaned)
+    cf_recommendation = column_with_9_cleaned_mean + (max_similarity * (row_with_9[most_similar_column] - most_similar_column_mean) / max_similarity)
+    return cf_recommendation[0]
+
+def get_file_path(filename):
+    '''
+    :param filename:文件的名称，带扩展名
+    :return: 文件的绝对路径
+    '''
+    current_directory = os.getcwd() + '\csv'
+    files_with_name = [os.path.join(current_directory, file) for file in os.listdir(current_directory) if file.endswith(filename)]
+    print(files_with_name)
+    for file_name in files_with_name:
+        file_path = os.path.join(current_directory, file_name)
+    return file_path
